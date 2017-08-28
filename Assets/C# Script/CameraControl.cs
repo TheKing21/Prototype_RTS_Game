@@ -27,20 +27,21 @@ public class CameraControl : MonoBehaviour {
     #region Public variables
 
     // Variables for the configuration of the mode CursorOnEdge.
-    public float NbPixelScreenEdgeScroll = 30.0f;                           // Distance in pixels from the edge of the screen where we begin to move the camera.        TODO - Perfect in all resolutions?
+    public float PourcentScreenEdgeWidth = 0.015625f;
+    public float PourcentScreenEdgeHeight = 0.0f;
+    public bool IsPourcentScreenEdgeRespectRatio = true;
     public float CameraCursorEdgeSpeed = 20.0f;                             // Max speed of the camera in this mode. Closer the cursor will be to the edge of the screen, faster the camera will move.
-    public bool IsLimitCameraExcludeUI = false;                             // Indicate if we limit the detection of the cursor on the edge of the screen to exclude the UI.
+    public bool IsLimitEdgeDectectionToExcludeUI = false;                   // Indicate if we limit the detection of the cursor on the edge of the screen to exclude the UI.
     // Limits of the detection of the cursor on the edge of the screen. Use only if IsLimitCameraExcludeUI is true.
-    public float CameraLimitsLeft = 0.0f;
-    public float CameraLimitsTop = 0.0f;
-    public float CameraLimitsRight= 0.0f;
-    public float CameraLimitsBottom = 0.0f;
-    public bool IsCameraMoveCursorOutScreen;                                // Indicate if we allow the camera to move if the cursor is out of the screen.
+    public float EdgeDectectionLimitsLeft = 0.0f;
+    public float EdgeDectectionLimitsTop = 0.0f;
+    public float EdgeDetectionLimitsRight = 0.0f;
+    public float EdgeDetectionLimitsBottom = 0.0f;
+    public bool IsCameraMoveWhenCursorOutScreen;                            // Indicate if we allow the camera to move if the cursor is out of the screen.
+    public bool IsSpeedProgressive = true;                                  // Indicate if the camera speed is slower when the cursor is not completly on the edge.
 
 
     // Variables for the configuration of the mode ClickAndDrag.
-    public float CameraDragSpeed = 4.0f;                                    // Speed of the camera when the use go in one direction when olding the right/left button of the mouse.
-    public bool IsDragMovementInverted = false;                             // Indicate if we want the movement of the camera to be inverted (if the cursor goes to the left, the camera goes to the right).
     public bool IsUseRightButtonToDragCamera = true;                        // The user use the right button to move the camera. If false, we'll use the left button.
 
 
@@ -54,12 +55,11 @@ public class CameraControl : MonoBehaviour {
     public float CameraZoomMinOrtho = 3.5f;
     public float CameraZoomMaxOrtho = 11.5f;
 
-
     // Other public variables.
     public List<enmModeMoveCamera> LstModesCamera = new List<enmModeMoveCamera>() { enmModeMoveCamera.CursorOnEdge, enmModeMoveCamera.ClickAndDrag, enmModeMoveCamera.MoveWithArrowKeys };
-    public CameraBounds CameraBoundsObj;                                    // Limits the movement of the camera to stay in game.
     public bool LockCursor = true;                                          // Confined the cursor to the view.
     public bool IsAfficheDebug = true;                                      // Display the debug infos?
+    public BoxCollider2D BoundsLimitCamera;                                 // BoxCollider that indicate the limits of the camera. We correct the position of the camera in the LateUpdate method if the camera is outside of the BoxCollider.
 
     #endregion
 
@@ -70,18 +70,28 @@ public class CameraControl : MonoBehaviour {
     private float _cameraOriginalOrtho;
 
     // DragAndMove mode.
-    private Vector3 _mouseOrigin = Vector3.zero;
-    private bool _isDraggingCamera = false;
+    private Vector3 Origin; // place where mouse is first pressed
+    private Vector3 Difference; // change in position of mouse relative to origin
 
     // Screen
     private int _screenWidth;
     private int _screenHeight;
     private Camera _camera;
 
+    // Variables to restraint the movement of the camera.
+    private float _horizExtend = 0.0f;
+    private float _vertExtend = 0.0f;
+    private Bounds _areaBounds;
+    private float _limitBoundLeft = 0.0f;
+    private float _limitBoundTop = 0.0f;
+    private float _limitBoundRight = 0.0f;
+    private float _limitBoundBottom = 0.0f;
+
     // Debug
     private Vector3 _mousePosition = Vector3.zero;
     private GUIStyle _styleTexteDebug;
     private Texture2D _textureDebug;
+    private double idUpdate = 0.0d;
 
     #endregion
 
@@ -104,12 +114,19 @@ public class CameraControl : MonoBehaviour {
         {
             Cursor.lockState = CursorLockMode.Confined;
         }
+
+        if (BoundsLimitCamera != null)
+        {
+            _areaBounds = BoundsLimitCamera.bounds;
+        }
     }
 
     private void Update()
     {
         if (Input.GetKey(KeyCode.Escape) || Input.GetKey(KeyCode.LeftAlt))
             Cursor.lockState = CursorLockMode.None;
+
+        calculateBounds();
     }
 
     /// <summary>
@@ -117,6 +134,8 @@ public class CameraControl : MonoBehaviour {
     /// </summary>
     private void LateUpdate()
     {
+        idUpdate++;
+
         // Debug...
         _mousePosition = Input.mousePosition;
 
@@ -130,6 +149,14 @@ public class CameraControl : MonoBehaviour {
                 moveCamera_ArrowKeys();
 
             checkForZoom();
+
+            // Restrint the mouvement of the camera to stay in the game!
+            if (BoundsLimitCamera != null && _areaBounds != null)
+            {
+                _camera.transform.position = new Vector3(Mathf.Clamp(_camera.transform.position.x, _limitBoundLeft, _limitBoundRight),
+                                                         Mathf.Clamp(_camera.transform.position.y, _limitBoundBottom, _limitBoundTop),
+                                                         _camera.transform.position.z);
+            }
         }
     }
 
@@ -156,12 +183,16 @@ public class CameraControl : MonoBehaviour {
             }
 
             GUI.skin.box.normal.background = _textureDebug;
-            GUI.Box(new Rect(5, 65, 325, 125), GUIContent.none);
+            GUI.Box(new Rect(5, 65, 400, 300), GUIContent.none);
 
             GUI.Label(new Rect(10, 70, 100, 30), "Pos Curseur: " + _mousePosition.ToString(), _styleTexteDebug);
             GUI.Label(new Rect(10, 100, 100, 30), "Pos Camera: " + gameObject.transform.position.ToString(), _styleTexteDebug);
             GUI.Label(new Rect(10, 130, 100, 30), "Width: " + _screenWidth.ToString(), _styleTexteDebug);
             GUI.Label(new Rect(10, 160, 100, 30), "Height: " + _screenHeight.ToString(), _styleTexteDebug);
+            //GUI.Label(new Rect(10, 190, 100, 30), "IsMouseDragStart: " + _isMouseDragStart.ToString(), _styleTexteDebug);
+            //GUI.Label(new Rect(10, 220, 100, 30), "IsMouseDragEnd: " + _isMouseDragEnd.ToString(), _styleTexteDebug);
+            //GUI.Label(new Rect(10, 250, 100, 30), "IsDragComplete: " + _isDragComplete.ToString(), _styleTexteDebug);
+            //GUI.Label(new Rect(10, 280, 100, 30), "IsDraggingCamera: " + _isDraggingCamera.ToString(), _styleTexteDebug);
         }
     }
 
@@ -196,11 +227,17 @@ public class CameraControl : MonoBehaviour {
         float speed = CameraCursorEdgeSpeed;
         float min = 0.0f;
         float max = 0.0f;
+        float offset = 3.0f;
+
+        float edgeDectectionWidth = PourcentScreenEdgeWidth * _screenWidth;
+        float edgeDectectionHeight = PourcentScreenEdgeHeight * _screenHeight;
+        if (IsPourcentScreenEdgeRespectRatio)
+            edgeDectectionHeight = edgeDectectionWidth * _screenHeight / _screenWidth;
 
         // Move to the right
-        min = _screenWidth - NbPixelScreenEdgeScroll - (IsLimitCameraExcludeUI ? CameraLimitsRight : 0.0f);
-        max = _screenWidth - (IsLimitCameraExcludeUI ? CameraLimitsRight : 0.0f) + 5.0f;
-        if (Input.mousePosition.x > min && gameObject.transform.position.x < CameraBoundsObj.BoundRight)
+        min = _screenWidth - edgeDectectionWidth - (IsLimitEdgeDectectionToExcludeUI ? EdgeDetectionLimitsRight : 0.0f);
+        max = _screenWidth - (IsLimitEdgeDectectionToExcludeUI ? EdgeDetectionLimitsRight : 0.0f) + offset;
+        if (Input.mousePosition.x > min && gameObject.transform.position.x < _limitBoundRight)
         {
             speed = calculerCameraSpeed(min, max, CameraCursorEdgeSpeed, Input.mousePosition.x, false);
             if (speed > 0.0f)
@@ -208,9 +245,9 @@ public class CameraControl : MonoBehaviour {
         }
 
         // Move to the left
-        min = 0.0f + (IsLimitCameraExcludeUI ? CameraLimitsLeft : 0.0f) - 5.0f;
-        max = NbPixelScreenEdgeScroll + (IsLimitCameraExcludeUI ? CameraLimitsLeft : 0.0f);
-        if (Input.mousePosition.x < max && gameObject.transform.position.x > CameraBoundsObj.BoundLeft)
+        min = 0.0f + (IsLimitEdgeDectectionToExcludeUI ? EdgeDectectionLimitsLeft : 0.0f) - offset;
+        max = edgeDectectionWidth + (IsLimitEdgeDectectionToExcludeUI ? EdgeDectectionLimitsLeft : 0.0f);
+        if (Input.mousePosition.x < max && gameObject.transform.position.x > _limitBoundLeft)
         {
             speed = calculerCameraSpeed(min, max, CameraCursorEdgeSpeed, Input.mousePosition.x, true);
             if (speed > 0.0f)
@@ -218,9 +255,9 @@ public class CameraControl : MonoBehaviour {
         }
 
         // Move up
-        min = _screenHeight - NbPixelScreenEdgeScroll - (IsLimitCameraExcludeUI ? CameraLimitsTop : 0.0f);
-        max = _screenHeight - (IsLimitCameraExcludeUI ? CameraLimitsTop : 0.0f) + 5.0f;
-        if (Input.mousePosition.y > min && gameObject.transform.position.y < CameraBoundsObj.BoundTop)
+        min = _screenHeight - edgeDectectionHeight - (IsLimitEdgeDectectionToExcludeUI ? EdgeDectectionLimitsTop : 0.0f);
+        max = _screenHeight - (IsLimitEdgeDectectionToExcludeUI ? EdgeDectectionLimitsTop : 0.0f) + offset;
+        if (Input.mousePosition.y > min && gameObject.transform.position.y < _limitBoundTop)
         {
             speed = calculerCameraSpeed(min, max, CameraCursorEdgeSpeed, Input.mousePosition.y, false);
             if (speed > 0.0f)
@@ -228,9 +265,9 @@ public class CameraControl : MonoBehaviour {
         }
 
         // Move down
-        min = 0.0f + (IsLimitCameraExcludeUI ? CameraLimitsBottom : 0.0f) - 5.0f;
-        max = NbPixelScreenEdgeScroll + (IsLimitCameraExcludeUI ? CameraLimitsBottom : 0.0f);
-        if (Input.mousePosition.y < max && gameObject.transform.position.y > CameraBoundsObj.BoundBottom)
+        min = 0.0f + (IsLimitEdgeDectectionToExcludeUI ? EdgeDetectionLimitsBottom : 0.0f) - offset;
+        max = edgeDectectionHeight + (IsLimitEdgeDectectionToExcludeUI ? EdgeDetectionLimitsBottom : 0.0f);
+        if (Input.mousePosition.y < max && gameObject.transform.position.y > _limitBoundBottom)
         {
             speed = calculerCameraSpeed(min, max, CameraCursorEdgeSpeed, Input.mousePosition.y, true);
             if (speed > 0.0f)
@@ -241,44 +278,19 @@ public class CameraControl : MonoBehaviour {
     /// <summary>
     /// Move the camera when the user old the right button down and move.
     ///   -> Config to use the left or right button.
-    ///   -> Config to move in the direction or inversed.
     /// </summary>
     private void moveCamera_MouseClickAndDrag()
     {
-        bool isMouseButtonDown = false;
+        int button = (IsUseRightButtonToDragCamera ? 1 : 0);
 
-        if (Input.GetMouseButtonDown(1) && IsUseRightButtonToDragCamera)
-            isMouseButtonDown = true;
-        else if (Input.GetMouseButtonDown(0) && !IsUseRightButtonToDragCamera)
-            isMouseButtonDown = true;
-
-        // Begin the movement
-        if (isMouseButtonDown)
+        if (Input.GetMouseButtonDown(button))
         {
-            _mouseOrigin = Input.mousePosition;
-            _isDraggingCamera = true;
+            Origin = Camera.main.ScreenToWorldPoint(Input.mousePosition);
         }
-
-        bool isMouseButtonRelease = false;
-        if (!Input.GetMouseButton(1) && IsUseRightButtonToDragCamera)
-            isMouseButtonRelease = true;
-        else if (!Input.GetMouseButton(0) && !IsUseRightButtonToDragCamera)
-            isMouseButtonRelease = true;
-
-        // Stop the movement
-        if (isMouseButtonRelease)
+        if (Input.GetMouseButton(button))
         {
-            _isDraggingCamera = false;
-        }
-
-        // Move the camera
-        if (_isDraggingCamera)
-        {
-            Vector3 pos = _camera.ScreenToViewportPoint(Input.mousePosition - _mouseOrigin);
-
-            Vector3 move = new Vector3(pos.x * CameraDragSpeed, pos.y * CameraDragSpeed, 0) * (IsDragMovementInverted ? -1 : 1);
-
-            _camera.transform.Translate(move, Space.Self);
+            Difference = (Vector2)Camera.main.ScreenToWorldPoint(Input.mousePosition) - (Vector2)transform.position;
+            transform.position = Origin - Difference;
         }
     }
 
@@ -287,19 +299,19 @@ public class CameraControl : MonoBehaviour {
     /// </summary>
     private void moveCamera_ArrowKeys()
     {
-        if (Input.GetKey(KeyCode.RightArrow) && gameObject.transform.position.x < CameraBoundsObj.BoundRight)
+        if (Input.GetKey(KeyCode.RightArrow) && gameObject.transform.position.x < _limitBoundRight)
         {
             transform.Translate(new Vector3(CameraMoveSpeedArrows * Time.deltaTime, 0, 0));
         }
-        if (Input.GetKey(KeyCode.LeftArrow) && gameObject.transform.position.x > CameraBoundsObj.BoundLeft)
+        if (Input.GetKey(KeyCode.LeftArrow) && gameObject.transform.position.x > _limitBoundLeft)
         {
             transform.Translate(new Vector3(-CameraMoveSpeedArrows * Time.deltaTime, 0, 0));
         }
-        if (Input.GetKey(KeyCode.UpArrow) && gameObject.transform.position.y < CameraBoundsObj.BoundTop)
+        if (Input.GetKey(KeyCode.UpArrow) && gameObject.transform.position.y < _limitBoundTop)
         {
             transform.Translate(new Vector3(0, CameraMoveSpeedArrows * Time.deltaTime, 0));
         }
-        if (Input.GetKey(KeyCode.DownArrow) && gameObject.transform.position.y > CameraBoundsObj.BoundBottom)
+        if (Input.GetKey(KeyCode.DownArrow) && gameObject.transform.position.y > _limitBoundBottom)
         {
             transform.Translate(new Vector3(0, -CameraMoveSpeedArrows * Time.deltaTime, 0));
         }
@@ -326,7 +338,7 @@ public class CameraControl : MonoBehaviour {
     /// </summary>
     private float calculerCameraSpeed(float distanceMin, float distanceMax, float speedMax, float mousePosition, bool isNegatif)
     {
-        if (!IsCameraMoveCursorOutScreen)
+        if (!IsCameraMoveWhenCursorOutScreen)
         {
             // We move only if we are in the scrollable zone.
             if (mousePosition <= distanceMin || mousePosition >= distanceMax)
@@ -352,7 +364,12 @@ public class CameraControl : MonoBehaviour {
                     return speedMax;
             }
         }
-        
+
+        // Here, we are int the detection edge zone.
+        // If we dont want a progressive speed (faster when closer to the edge), we return full speed.
+        if (!IsSpeedProgressive)
+            return speedMax;
+
 
         float distanceFromMin = mousePosition - distanceMin;
         float totalDistance = distanceMax - distanceMin;
@@ -379,6 +396,20 @@ public class CameraControl : MonoBehaviour {
             // Little progression for the speed.
             return speedMax * pourcent;
         }        
+    }
+
+    private void calculateBounds()
+    {
+        _vertExtend = _camera.orthographicSize;
+        _horizExtend = _vertExtend * _screenWidth / _screenHeight;
+
+        if (_areaBounds != null)
+        {
+            _limitBoundLeft = _areaBounds.min.x + _horizExtend;
+            _limitBoundTop = _areaBounds.max.y - _vertExtend;
+            _limitBoundRight = _areaBounds.max.x - _horizExtend;
+            _limitBoundBottom = _areaBounds.min.y + _vertExtend;
+        }
     }
 
     #endregion
