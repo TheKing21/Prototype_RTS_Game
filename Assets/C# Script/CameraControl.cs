@@ -2,7 +2,8 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class CameraControl : MonoBehaviour {
+public class CameraControl : MonoBehaviour
+{
 
     /* L'utilisateur peut bouger la caméra de 3 façons:
      *   1) Approcher le curseur du bord de l'écran.
@@ -19,9 +20,10 @@ public class CameraControl : MonoBehaviour {
 
     public enum enmModeMoveCamera
     {
-        CursorOnEdge = 0,           // The camera move when the cursor is close to the edge of the screen.
-        ClickAndDrag = 1,           // The camera move in the direction (or backward) the cursor move when the user pressed on the right button (can choose left button).
-        MoveWithArrowKeys = 2       // The camera move when the user use the arrow keys.
+        CursorOnEdge = 0,               // The camera move when the cursor is close to the edge of the screen.
+        ClickAndDrag = 1,               // The camera move in the direction (or backward) the cursor move when the user pressed on the right button (can choose left button).
+        MoveWithArrowKeys = 2,          // The camera move when the user use the arrow keys.
+        FollowTarget = 3                // The camera move with the target (ex. player).
     }
 
     #region Public variables
@@ -50,15 +52,22 @@ public class CameraControl : MonoBehaviour {
 
 
     // Variables for the configuration of the Zoom.
+    public bool IsAllowZoom = true;
     public float CameraZoomSpeed = 8.0f;
     public float CameraZoomSmoothSpeed = 10.0f;
     public float CameraZoomMinOrtho = 3.5f;
     public float CameraZoomMaxOrtho = 11.5f;
 
+    public bool IsCameraFollowDelai = true;
+    public float CameraFollowSpeed = 0.2f;
+    public GameObject CameraFollowTarget = null;
+
     // Other public variables.
     public List<enmModeMoveCamera> LstModesCamera = new List<enmModeMoveCamera>() { enmModeMoveCamera.CursorOnEdge, enmModeMoveCamera.ClickAndDrag, enmModeMoveCamera.MoveWithArrowKeys };
     public bool LockCursor = true;                                          // Confined the cursor to the view.
     public bool IsAfficheDebug = true;                                      // Display the debug infos?
+
+    public bool IsLimitCamera = true;
     public BoxCollider2D BoundsLimitCamera;                                 // BoxCollider that indicate the limits of the camera. We correct the position of the camera in the LateUpdate method if the camera is outside of the BoxCollider.
 
     #endregion
@@ -129,15 +138,21 @@ public class CameraControl : MonoBehaviour {
         calculateBounds();
     }
 
+    private void FixedUpdate()
+    {
+        if (LstModesCamera.Contains(enmModeMoveCamera.FollowTarget))
+            moveCamera_FollowTarget();
+    }
+
     /// <summary>
     /// Camera movements should be in the LateUpdate event.
     /// </summary>
     private void LateUpdate()
     {
-        idUpdate++;
-
         // Debug...
+        idUpdate++;
         _mousePosition = Input.mousePosition;
+
 
         if (_camera != null)
         {
@@ -148,10 +163,11 @@ public class CameraControl : MonoBehaviour {
             if (LstModesCamera.Contains(enmModeMoveCamera.MoveWithArrowKeys))
                 moveCamera_ArrowKeys();
 
-            checkForZoom();
+            if (IsAllowZoom)
+                checkForZoom();
 
             // Restrint the mouvement of the camera to stay in the game!
-            if (BoundsLimitCamera != null && _areaBounds != null)
+            if (IsLimitCamera && BoundsLimitCamera != null)
             {
                 _camera.transform.position = new Vector3(Mathf.Clamp(_camera.transform.position.x, _limitBoundLeft, _limitBoundRight),
                                                          Mathf.Clamp(_camera.transform.position.y, _limitBoundBottom, _limitBoundTop),
@@ -317,6 +333,17 @@ public class CameraControl : MonoBehaviour {
         }
     }
 
+    private void moveCamera_FollowTarget()
+    {
+        if (CameraFollowTarget != null)
+        {
+            float cameraSpeed = (IsCameraFollowDelai ? CameraFollowSpeed : 99.0f);  // If we don't want any delay, we take a high speed.
+
+            Vector3 targetPosition = new Vector3(CameraFollowTarget.transform.position.x, CameraFollowTarget.transform.position.y, transform.position.z);
+            transform.position = Vector3.Lerp(transform.position, targetPosition, cameraSpeed * Time.deltaTime);
+        }
+    }
+
     /// <summary>
     /// Allow the user to Zoom In/Out with the mousewheel.
     /// </summary>
@@ -395,7 +422,7 @@ public class CameraControl : MonoBehaviour {
         {
             // Little progression for the speed.
             return speedMax * pourcent;
-        }        
+        }
     }
 
     private void calculateBounds()
@@ -403,13 +430,10 @@ public class CameraControl : MonoBehaviour {
         _vertExtend = _camera.orthographicSize;
         _horizExtend = _vertExtend * _screenWidth / _screenHeight;
 
-        if (_areaBounds != null)
-        {
-            _limitBoundLeft = _areaBounds.min.x + _horizExtend;
-            _limitBoundTop = _areaBounds.max.y - _vertExtend;
-            _limitBoundRight = _areaBounds.max.x - _horizExtend;
-            _limitBoundBottom = _areaBounds.min.y + _vertExtend;
-        }
+        _limitBoundLeft = _areaBounds.min.x + _horizExtend;
+        _limitBoundTop = _areaBounds.max.y - _vertExtend;
+        _limitBoundRight = _areaBounds.max.x - _horizExtend;
+        _limitBoundBottom = _areaBounds.min.y + _vertExtend;
     }
 
     #endregion
